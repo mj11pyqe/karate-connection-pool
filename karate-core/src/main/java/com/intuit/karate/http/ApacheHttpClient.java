@@ -147,7 +147,6 @@ public class ApacheHttpClient implements HttpClient, HttpRequestInterceptor {
             connectionManager = new PoolingHttpClientConnectionManager();
             Runtime.getRuntime().addShutdownHook(new Thread(() -> connectionManager.shutdown()));
         }
-      connectionManager.closeExpiredConnections();
     }
 
     private void configure(Config config) {
@@ -309,7 +308,8 @@ public class ApacheHttpClient implements HttpClient, HttpRequestInterceptor {
         }
         CloseableHttpResponse httpResponse;
         byte[] bytes;
-        try (CloseableHttpClient client = clientBuilder.build()) {
+        CloseableHttpClient client = clientBuilder.build();
+        try {
             httpResponse = client.execute(requestBuilder.build());
             HttpEntity responseEntity = httpResponse.getEntity();
             if (responseEntity == null || responseEntity.getContent() == null) {

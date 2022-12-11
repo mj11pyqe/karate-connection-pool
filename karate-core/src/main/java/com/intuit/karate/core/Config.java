@@ -301,34 +301,6 @@ public class Config {
             case "localAddress":
                 localAddress = value.getAsString();
                 return true;
-            case "continueOnStepFailure":
-                continueOnStepFailureMethods.clear(); // clears previous configuration - in case someone is trying to chain these and forgets resetting the previous one
-
-                boolean enableContinueOnStepFailureFeature = false;
-                Boolean continueAfterIgnoredFailure = null;
-
-                List<String> stepKeywords = null;
-                if (value.isMap()) {
-                    Map<String, Object> map = value.getValue();
-                    stepKeywords = (List<String>) map.get("keywords");
-                    continueAfterIgnoredFailure = (Boolean) map.get("continueAfter");
-                    enableContinueOnStepFailureFeature = map.get("enabled") != null && (Boolean) map.get("enabled");
-                }
-
-                if (value.isTrue() || enableContinueOnStepFailureFeature) {
-                    continueOnStepFailureMethods.addAll(stepKeywords == null ? StepRuntime.METHOD_MATCH : StepRuntime.findMethodsByKeywords(stepKeywords));
-                } else {
-                    if (stepKeywords == null) {
-                        continueOnStepFailureMethods.clear();
-                    } else {
-                        continueOnStepFailureMethods.removeAll(StepRuntime.findMethodsByKeywords(stepKeywords));
-                    }
-                }
-                if (continueAfterIgnoredFailure != null) {
-                    continueAfterContinueOnStepFailure = continueAfterIgnoredFailure;
-                }
-
-                return true;
             case "maxConnectionsPerRoute":
                 maxConnectionsPerRoute = value.getAsInt();
                 return true;
