@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright 2020 Intuit Inc.
+ * Copyright 2022 Karate Labs Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -271,6 +271,26 @@ public class ScenarioBridge implements PerfContext {
     public void capturePerfEvent(String name, long startTime, long endTime) {
         PerfEvent event = new PerfEvent(startTime, endTime, name, 200);
         getEngine().capturePerfEvent(event);
+    }
+
+    public Object compareImage(Object baseline, Object latest, Value... optionsVal) {
+        if (optionsVal.length > 0 && !optionsVal[0].hasMembers()) {
+            throw new RuntimeException("invalid image comparison options: expected map");
+        }
+
+        Map<String, Object> options = new HashMap<>();
+        if (optionsVal.length > 0) {
+            for (String k : optionsVal[0].getMemberKeys()) {
+                options.put(k, optionsVal[0].getMember(k).as(Object.class));
+            }
+        }
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("baseline", baseline);
+        params.put("latest", latest);
+        params.put("options", options);
+
+        return JsValue.fromJava(getEngine().compareImageInternal(params));
     }
 
     public void configure(String key, Value value) {
@@ -757,8 +777,12 @@ public class ScenarioBridge implements PerfContext {
     }
 
     public Object setup(String name) {
-        ScenarioEngine engine = getEngine();
-        Feature feature = engine.runtime.featureRuntime.feature;
+        Map<String, Object> result = setupInternal(getEngine(), name);
+        return JsValue.fromJava(result);
+    }
+    
+    private static Map<String, Object> setupInternal(ScenarioEngine engine, String name) {
+        Feature feature = engine.runtime.featureRuntime.featureCall.feature;
         Scenario scenario = feature.getSetup(name);
         if (scenario == null) {
             String message = "no scenario found with @setup tag";
@@ -767,17 +791,49 @@ public class ScenarioBridge implements PerfContext {
             }
             engine.logger.error(message);
             throw new RuntimeException(message);
-        }
+        }        
         ScenarioRuntime sr = new ScenarioRuntime(engine.runtime.featureRuntime, scenario);
         sr.setSkipBackground(true);
         sr.run();
         ScenarioEngine.set(engine);
-        FeatureResult result = engine.runtime.featureRuntime.result;
-        synchronized (result) {
-            result.addResult(sr.result);
-        }
-        return JsValue.fromJava(sr.engine.getAllVariablesAsMap());
+        engine.runtime.featureRuntime.setupResult = sr.result; // hack to embed setup into report
+        return sr.engine.getAllVariablesAsMap();        
+    }    
+    
+    public Object setupOnce() {
+        return setupOnce(null);
     }
+
+    public Object setupOnce(String name) {
+        ScenarioEngine engine = getEngine();
+        final Map<String, Map<String, Object>> CACHE = engine.runtime.featureRuntime.SETUPONCE_CACHE;
+        Map<String, Object> result = CACHE.get(name);
+        if (result != null) {
+            return setupOnceResult(result);
+        }
+        long startTime = System.currentTimeMillis();
+        engine.logger.trace("setupOnce waiting for lock: {}", name);        
+        synchronized (CACHE) {
+            result = CACHE.get(name); // retry
+            if (result != null) {
+                long endTime = System.currentTimeMillis() - startTime;
+                engine.logger.warn("this thread waited {} milliseconds for setupOnce lock: {}", endTime, name);
+                return setupOnceResult(result);
+            }
+            result = setupInternal(engine, name);
+            CACHE.put(name, result);
+            return setupOnceResult(result);
+        }
+    }        
+    
+    private static Object setupOnceResult(Map<String, Object> result) {
+        Map<String, Object> clone = new HashMap(result.size());
+        result.forEach((k, v) -> { // shallow clone
+            Variable variable = new Variable(v);
+            clone.put(k, variable.copy(false).getValue());
+        });    
+        return JsValue.fromJava(clone);
+    }    
 
     public void setXml(String name, String xml) {
         getEngine().setVariable(name, XmlUtils.toXmlDoc(xml));

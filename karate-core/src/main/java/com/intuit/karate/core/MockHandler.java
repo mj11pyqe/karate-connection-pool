@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright 2020 Intuit Inc.
+ * Copyright 2022 Karate Labs Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -101,7 +101,7 @@ public class MockHandler implements ServerHandler {
     }
 
     private ScenarioRuntime initRuntime(Feature feature, Map<String, Object> args) {
-        FeatureRuntime featureRuntime = FeatureRuntime.of(Suite.forTempUse(HttpClientFactory.DEFAULT), feature, args);
+        FeatureRuntime featureRuntime = FeatureRuntime.of(Suite.forTempUse(HttpClientFactory.DEFAULT), new FeatureCall(feature), args);
         FeatureSection section = new FeatureSection();
         section.setIndex(-1); // TODO util for creating dummy scenario
         Scenario dummy = new Scenario(feature, section, -1);

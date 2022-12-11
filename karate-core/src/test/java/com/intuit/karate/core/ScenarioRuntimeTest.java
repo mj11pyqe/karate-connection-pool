@@ -67,6 +67,26 @@ class ScenarioRuntimeTest {
     }
 
     @Test
+    void testDefAndMatchForArrays() {
+        run(
+                "def arr = ['a','b','c','d','e']",
+                "def arrSize = karate.sizeOf(arr)",
+                "match arr == '##[_]'",
+                "match arr == '##[_ > 0]'",
+                "match arr == '##[_>0]'",
+                "match arr == '##[_<6]'",
+                "def two = 2",
+                "def three = 3",
+                "match arr == '##[two + three]'",
+                "def two_var = 2",
+                "def one_two_three = 3",
+                "match arr == '#[two_var+ one_two_three + _ > 0]'",
+                "match arr == '#[two_var+ one_two_three ]'"
+        );
+        assertEquals(5, get("arrSize"));
+    }
+
+    @Test
     void testConfigAndEnv() {
         System.clearProperty("karate.env");
         System.clearProperty("karate.config.dir");
@@ -737,6 +757,22 @@ class ScenarioRuntimeTest {
                 "def response = { foo: [ 'a', 'b' ] } ",
                 "match response contains deep { foo: '#(^array)' }"
         );        
+    }
+    
+    @Test
+    void testMatchContainsOnlyDeep() {
+        run(
+                "def response = { foo: [ 'a', 'b' ] } ",
+                "match response contains only deep { foo: [ 'b', 'a' ] }"
+        );        
+    }
+
+    @Test
+    void testMatchEachContainsDeep() {
+        run(
+                "def response = [ { a: 1, arr: [ { b: 2, c: 3 }, { b: 4, c: 5 } ] } ]",
+                "match each response contains deep { a: 1, arr: [ { b: '#number', c: 3 } ] }"
+        );
     }
 
     @Test

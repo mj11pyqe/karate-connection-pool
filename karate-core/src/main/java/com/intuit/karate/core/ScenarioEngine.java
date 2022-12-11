@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright 2020 Intuit Inc.
+ * Copyright 2022 Karate Labs Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,6 +23,7 @@
  */
 package com.intuit.karate.core;
 
+import com.intuit.karate.ImageComparison;
 import com.intuit.karate.FileUtils;
 import com.intuit.karate.Json;
 import com.intuit.karate.JsonUtils;
@@ -586,7 +587,7 @@ public class ScenarioEngine {
             perfEventName = runtime.featureRuntime.perfHook.getPerfEventName(httpRequest, runtime);
         }
         long startTime = System.currentTimeMillis();
-        httpRequest.setStartTimeMillis(startTime); // this may be fine-adjusted by actual http client
+        httpRequest.setStartTime(startTime); // this may be fine-adjusted by actual http client
         if (hooks != null) {
             hooks.forEach(h -> h.beforeHttpCall(httpRequest, runtime));
         }
@@ -597,6 +598,12 @@ public class ScenarioEngine {
             long responseTime = endTime - startTime;
             String message = "http call failed after " + responseTime + " milliseconds for url: " + httpRequest.getUrl();
             logger.error(e.getMessage() + ", " + message);
+            if (logger.isTraceEnabled()) {
+                String stacktrace = StringUtils.throwableToString(e);
+                if (stacktrace != null) {
+                    logger.trace(stacktrace);
+                }
+            }
             if (perfEventName != null) {
                 PerfEvent pe = new PerfEvent(startTime, endTime, perfEventName, 0);
                 capturePerfEvent(pe); // failure flag and message should be set by logLastPerfEvent()
@@ -640,10 +647,12 @@ public class ScenarioEngine {
         cookies = response.getCookies();
         updateConfigCookies(cookies);
         setHiddenVariable(RESPONSE_COOKIES, cookies);
-        startTime = httpRequest.getStartTimeMillis(); // in case it was re-adjusted by http client
-        long endTime = httpRequest.getEndTimeMillis();
+        startTime = httpRequest.getStartTime(); // in case it was re-adjusted by http client
+        final long endTime = httpRequest.getEndTime();
+        final long responseTime = endTime - startTime;
         setHiddenVariable(REQUEST_TIME_STAMP, startTime);
-        setHiddenVariable(RESPONSE_TIME, endTime - startTime);
+        setVariable(RESPONSE_TIME, responseTime);
+        response.setResponseTime(responseTime);
         if (perfEventName != null) {
             PerfEvent pe = new PerfEvent(startTime, endTime, perfEventName, response.getStatus());
             capturePerfEvent(pe);
@@ -993,7 +1002,7 @@ public class ScenarioEngine {
         if (resourceResolver != null) {
             return resourceResolver;
         }
-        String prefixedPath = runtime.featureRuntime.rootFeature.feature.getResource().getPrefixedParentPath();
+        String prefixedPath = runtime.featureRuntime.rootFeature.featureCall.feature.getResource().getPrefixedParentPath();
         return new ResourceResolver(prefixedPath);
     }
 
@@ -1036,6 +1045,83 @@ public class ScenarioEngine {
         return html;
     }
 
+    // compareImage =====================================================================
+    //
+    public void compareImage(String exp) {
+        Variable v = evalKarateExpression(exp);
+        if (!v.isMap()) {
+            throw new RuntimeException("invalid image comparison params: expected map");
+        }
+
+        compareImageInternal(v.getValue());
+    }
+    protected Map<String, Object> compareImageInternal(Map<String,Object> params) {
+        Map<String, Object> options = getImageOptions(params.get("options"), "options");
+        byte[] baselineImg = getImageBytes(params, "baseline");
+        byte[] latestImg = getImageBytes(params, "latest");
+
+        Map<String, Object> defaultOptions = getImageOptions(config.getImageComparisonOptions(), "defaultOptions");
+        boolean embedUI = !Boolean.TRUE.equals(defaultOptions.get("hideUiOnSuccess"));
+
+        Map<String, Object> result = null;
+        try {
+            result = ImageComparison.compare(baselineImg, latestImg, options, defaultOptions);
+        } catch (ImageComparison.MismatchException e) {
+            logger.error("image comparison failed: {}", e.getMessage());
+            embedUI = true;
+            result = e.data;
+            if (!Boolean.TRUE.equals(defaultOptions.get("mismatchShouldPass"))) throw e;
+        } finally {
+            if (embedUI) {
+                String diffJS = "newDiffUI(document.currentScript," +
+                        JsonUtils.toJson(result) + "," +
+                        JsonUtils.toJson(options) + "," +
+                        getImageHookFunction(options, defaultOptions, "onShowRebase") + "," +
+                        getImageHookFunction(options, defaultOptions, "onShowConfig") +
+                        ")";
+
+                runtime.embed(JsValue.toBytes(diffJS), ResourceType.DEFERRED_JS);
+            }
+        }
+
+        return result;
+    }
+
+    private byte[] getImageBytes(Map<String, Object> params, String paramName) {
+        Object img = params.get(paramName);
+        if (img == null) {
+            return null;
+        }
+
+        if (img instanceof String) {
+            return fileReader.readFileAsBytes((String)img);
+        }
+
+        if (img instanceof byte[]) {
+            return (byte[])img;
+        }
+
+        throw new RuntimeException(
+                "invalid image comparison options: expected " + paramName + " to be one of string|byte[]");
+    }
+
+    private Map<String, Object> getImageOptions(Object obj, String objName) {
+        if (obj == null) {
+            return new HashMap<>();
+        }
+
+        if (obj instanceof Map) {
+            return (Map<String, Object>)obj;
+        }
+
+        throw new RuntimeException("invalid image comparison " + objName + ": expected map");
+    }
+
+    private String getImageHookFunction(Map<String, Object> options, Map<String, Object> defaultOptions, String name) {
+        Object fn = options.containsKey(name) ? options.get(name) : defaultOptions.get(name);
+        return fn == null ? null : fn.toString();
+    }
+
     //==========================================================================        
     //       
     public void init() { // not in constructor because it has to be on Runnable.run() thread 
@@ -1050,9 +1136,9 @@ public class ScenarioEngine {
         }
         JS.put(KARATE, bridge);
         JS.put(READ, readFunction);        
-        // edge case: can be set by dynamic scenario outline background
-        // or be left as-is because a callonce triggered init()
+        // edge case: can be left as-is because a callonce triggered init()
         if (requestBuilder == null) {
+            // note that the http builder is always reset when a "call" occurs
             HttpClient client = runtime.featureRuntime.suite.clientFactory.create(this);
             requestBuilder = new HttpRequestBuilder(client);
         }
@@ -1759,7 +1845,7 @@ public class ScenarioEngine {
             case JAVA_FUNCTION:
                 return arg == null ? executeFunction(called) : executeFunction(called, new Object[]{arg.getValue()});
             case FEATURE:
-                // will be always a map or a list of maps (loop call result)                
+                // call result will be always a map or a list of maps (loop call result)
                 Object callResult = callFeature(called.getValue(), arg, -1, sharedScope);
                 return new Variable(callResult);
             default:
@@ -1850,9 +1936,9 @@ public class ScenarioEngine {
         }
     }
 
-    public Object callFeature(Feature feature, Variable arg, int index, boolean sharedScope) {
+    public Object callFeature(FeatureCall featureCall, Variable arg, int index, boolean sharedScope) {
         if (arg == null || arg.isMap()) {
-            ScenarioCall call = new ScenarioCall(runtime, feature, arg);
+            ScenarioCall call = new ScenarioCall(runtime, featureCall, arg);
             call.setLoopIndex(index);
             call.setSharedScope(sharedScope);
             FeatureRuntime fr = new FeatureRuntime(call);
@@ -1887,7 +1973,7 @@ public class ScenarioEngine {
                     break;
                 }
                 try {
-                    Object loopResult = callFeature(feature, loopArg, loopIndex, sharedScope);
+                    Object loopResult = callFeature(featureCall, loopArg, loopIndex, sharedScope);
                     result.add(loopResult);
                 } catch (Exception e) {
                     String message = "feature call loop failed at index: " + loopIndex + ", " + e.getMessage();

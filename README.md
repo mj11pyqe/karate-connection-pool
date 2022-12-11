@@ -127,6 +127,7 @@ And you don't need to create additional Java classes for any of the payloads tha
     | <a href="#listen"><code>listen</code></a> 
     | <a href="#doc"><code>doc</code></a>    
     | <a href="#reading-files"><code>read()</code></a>
+    | <a href="#compare-image"><code>compareImage</code></a>
     | <a href="#the-karate-object"><code>karate</code> JS API</a>  
   </td>
 </tr>
@@ -181,9 +182,11 @@ And you don't need to create additional Java classes for any of the payloads tha
     | <a href="#match-contains"><code>match contains</code></a>
     | <a href="#match-contains-only"><code>match contains only</code></a>
     | <a href="#match-contains-any"><code>match contains any</code></a>
-    | <a href="#match-contains-deep"><code>match contains deep</code></a>    
+    | <a href="#match-contains-deep"><code>match contains deep</code></a>
+    | <a href="#match-contains-only-deep"><code>match contains only deep</code></a>       
     | <a href="#not-contains"><code>match !contains</code></a>
     | <a href="#match-each"><code>match each</code></a>
+    | <a href="#match-each-contains-deep"><code>match each contains deep</code></a>
     | <a href="#match-header"><code>match header</code></a>    
     | <a href="#fuzzy-matching">Fuzzy Matching</a>
     | <a href="#schema-validation">Schema Validation</a>
@@ -266,6 +269,7 @@ And you don't need to create additional Java classes for any of the payloads tha
 * Easily invoke JDK classes, Java libraries, or re-use custom Java code if needed, for [ultimate extensibility](#calling-java)
 * Simple plug-in system for [authentication](#http-basic-authentication-example) and HTTP [header management](#configure-headers) that will handle any complex, real-world scenario
 * [Cross-browser Web UI automation](karate-core) so that you can test *all* layers of your application with the same framework
+* Visual Validation via the built-in [image comparison](#compare-image) capabilities
 * Cross platform [Desktop Automation](karate-robot) that can be [mixed into Web Automation flows](https://twitter.com/ptrthomas/status/1215534821234995200) if needed
 * Option to invoke via a [Java API](#java-api),  which means that you can easily [mix Karate into Java projects or legacy UI-automation suites](https://stackoverflow.com/q/47795762/143475)
 * [Save significant effort](https://twitter.com/ptrthomas/status/986463717465391104) by re-using Karate test-suites as [Gatling performance tests](karate-gatling) that *deeply* assert that server responses are accurate under load
@@ -316,7 +320,7 @@ All you need is available in the [`karate-core`](https://search.maven.org/artifa
 <dependency>
     <groupId>com.intuit.karate</groupId>
     <artifactId>karate-junit5</artifactId>
-    <version>1.2.0</version>
+    <version>1.3.1</version>
     <scope>test</scope>
 </dependency>
 ```
@@ -327,10 +331,28 @@ If you want to use [JUnit 4](#junit-4), use `karate-junit4` instead of `karate-j
 Alternatively for [Gradle](https://gradle.org):
 
 ```yml
-    testCompile 'com.intuit.karate:karate-junit5:1.2.0'
+    testCompile 'com.intuit.karate:karate-junit5:1.3.1'
 ```
 
 Also refer to the wiki for using [Karate with Gradle](https://github.com/intuit/karate/wiki/Gradle).
+
+### Karate Core "Fat JAR"
+If you mix Karate into a Maven or Gradle project with many other dependendies, you may run into problems because of dependency conflicts. For example a lot of Java projects directly (or indirectly) depend on Netty or Thymeleaf or ANTLR, etc.
+
+If you face issues such as "class not found", just pull in the `karate-core` dependency, and use the `all` [classifier](https://www.baeldung.com/maven-artifact-classifiers) in your `pom.xml` (or `build.gradle`).
+
+For example when using Maven:
+
+```xml
+<dependency>
+  <groupId>com.intuit.karate</groupId>
+  <artifactId>karate-core</artifactId>
+  <version>${karate.version}</version>
+  <classifier>all</classifier>
+</dependency>
+```
+
+Note that for very complicated projects you can consider using a [Maven profile](https://maven.apache.org/guides/introduction/introduction-to-profiles.html) so that testing-related dependencies don't collide with your development-time dependencies. Of course it is an option to have Karate tests in a separate stand-alone maven project and folder, while still being in the same Git repository.
 
 ### Quickstart
 It may be easier for you to use the Karate Maven archetype to create a skeleton project with one command. You can then skip the next few sections, as the `pom.xml`, recommended directory structure, sample test and [JUnit 5](#junit-5) runners - will be created for you.
@@ -343,7 +365,7 @@ You can replace the values of `com.mycompany` and `myproject` as per your needs.
 mvn archetype:generate \
 -DarchetypeGroupId=com.intuit.karate \
 -DarchetypeArtifactId=karate-archetype \
--DarchetypeVersion=1.2.0 \
+-DarchetypeVersion=1.3.1 \
 -DgroupId=com.mycompany \
 -DartifactId=myproject
 ```
@@ -565,6 +587,12 @@ mvn test "-Dkarate.options=--tags ~@skipme classpath:demo/cats/cats.feature" -Dt
 Multiple feature files (or paths) can be specified, de-limited by the space character. They should be at the end of the `karate.options`. To run only a single scenario, append the line number on which the scenario is defined, de-limited by `:`.
 ```
 mvn test "-Dkarate.options=PathToFeatureFiles/order.feature:12" -Dtest=DemoTestParallel
+```
+
+Since paths are expected at the end of the command-line options - if you want to only over-ride tags, use the `=` sign to make argument values clear. For example:
+
+```
+mvn test -Dkarate.options='-t=@dev -t=@src' -Dtest=ExamplesTest
 ```
 
 ### Command Line - Gradle
@@ -1508,6 +1536,7 @@ The rarely used `file:` prefix is also supported. You could use it for 'hard-cod
 * def payload = read('file:target/large.xml')
 ```
 
+### Path Prefixes
 To summarize the possible prefixes:
 
 Prefix | Description
@@ -1527,6 +1556,183 @@ And header Content-Type = 'text/csv'
 And request karate.readAsString('classpath:my.csv')
 When method post
 Then status 202
+```
+
+## Compare Image
+Karate provides a flexible way to compare two images to determine if they are the same or similar. This is especially useful when capturing screenshots during tests and comparing against baseline images that are known to be correct.
+
+> A stand-alone example can be found here: [`examples/image-comparison`](examples/image-comparison) along with a [video explanation](https://youtu.be/wlvmNBraP60).
+
+Below is a simple example that will compare a `baseline` image to a more recent `latest` image. An image comparison UI will also be embedded into the Karate HTML report with detailed information about any differences between the two images.
+
+```cucumber
+* compareImage { baseline: 'screenshots/login.png', latest: '/tmp/login.png' }
+```
+
+You can also compare images using Karate [path prefixes](#path-prefixes) (e.g. `classpath:`, `this:`, `file:`) or byte arrays:
+
+```cucumber
+* def latestImgBytes = karate.readAsBytes('login.png')
+* compareImage { baseline: 'classpath:screenshots/login.png', latest: '#(latestImgBytes)' }
+```
+
+You may configure the following image comparison options using the `configure` action:
+
+```cucumber
+* configure imageComparison = { /* image comparison options ... */ }
+```
+
+Image comparison configuration options:
+
+| Key                   | Type        | Default    | Description                                                                                                                                                                                                                                |
+|-----------------------|-------------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `allowScaling`        | boolean     | `false`    | When `true` we will scale latest images to match the dimensions of the baseline when they are not equal                                                                                                                                    |
+| `engine`              | string      | 'resemble' | Comparison engine(s) to use. Valid options are `resemble` and `ssim` separated by either `,` or <code>&#124</code>                                                                                                                         |
+| `failureThreshold`    | number      | `0.0`      | Precentage of `latest` image pixels allowed to differ from `baseline` before we consider the comparison as failed                                                                                                                          |
+| `mismatchShouldPass`  | boolean     | `false`    | When `true` all image comparisons will pass (even when difference is >= `failureThreshold`). Note: failures will result in image comparison UI *always* being embedded in Karate HTML reports regardless of `hideUiOnSuccess` setting. |
+| `onShowRebase`        | string (js) | `null`     | Function to be called when displaying image comparison rebase in Karate HTML reports (e.g. to customize rebase filename and/or output)                                                                                                     |
+| `onShowConfig`        | string (js) | `null`     | Function to be called when displaying image comparison configuration in Karate HTML reports (e.g. to customize configuration output)                                                                                                       |
+| `hideUiOnSuccess` | boolean     | `false`    | When `true` the comparison UI will *NOT* be embedded in Karate HTML reports for all non-failed image comparisons                                                                                                                           |
+
+Examples:
+
+```cucumber
+# use only 'ssim' (structural similarity) engine
+* configure imageComparison = { engine: 'ssim' }
+
+# always use both 'resemble' and 'ssim' engines but only evaluate the lowest mismatch percentage against our `failureThreshold`
+* configure imageComparison = { engine: 'resemble,ssim' }
+
+# prefer 'resemble' and fallback to 'ssim' engine only if the resemble mismatch percentage is >= `failureThreshold`
+* configure imageComparison = { engine: 'resemble|ssim' }
+
+# only consider the comparison as failed when 2% or more pixels are different from the baseline
+* configure imageComparison = { failureThreshold: 2 }
+
+# consider image comparisons that fail due to too many mismatched pixels as passed (especially useful when you are first starting without any baseline images)
+* configure imageComparison = { mismatchShouldPass: true }
+
+# custom JS function called in Karate HTML image comparison UI when the user clicks the `Rebase` button
+* text onShowRebaseFn =
+"""
+function (config, downloadLatestFn) {
+  // trigger download of latest image with custom file name
+  downloadLatestFn('custom_latest.png')
+  return 'this text will be displayed to the user when they click the rebase button'
+}
+"""
+* configure imageComparison = { onShowRebase: '#(onShowRebaseFn)' }
+
+# custom JS function called in Karate HTML image comparison UI when the user clicks the `Show config` button
+* text onShowConfigFn =
+"""
+function (customConfigJson, config) {
+  return 'this text will be displayed above the image comparison config\n' + customConfigJson
+}
+"""
+* configure imageComparison = { onShowConfig: '#(onShowConfigFn)' }
+
+# don't embed the image comparison UI when the latest image is the same / similar to the baseline (e.g. to save space and speed up report loading)
+* configure imageComparison = { hideUiOnSuccess: true }
+```
+
+Image comparison engines can also be customized:
+
+```cucumber
+* compareImage { baseline: 'baseline.png', latest: 'latest.png', options: { /* engine options ... */ } }
+```
+
+Image comparison configuration options:
+
+| Key                      | Engines        | Type            | Default   | Description                                                                                                                                                                                                                                            |
+|--------------------------|----------------|-----------------|-----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ignoredBoxes`           | resemble, ssim | array of object | `null`    | Array of rectangles that should be ignored during image comparison                                                                                                                                                                                     |
+| `ignore`                 | resemble       | string          | 'less'    | Resemble ignore preset. Valid options are `nothing`, `less`, `antialiasing`, `colors`, `alpha` (see [presets](https://github.com/t12y/resemble/blob/0c55a1849232b68aa4c16f1d7a949cc429a6af8e/src/main/java/io/github/t12y/resemble/Options.java#L20)). |
+| `ignoreAreasColoredWith` | resemble       | object          | `null`    | Resemble option to ignore a specific color                                                                                                                                                                                                             |
+| `ignoreColors`           | resemble       | boolean         | `false`   | When `true` only pixel brightness is compared                                                                                                                                                                                                          |
+| `ignoreAntialiasing`     | resemble       | boolean         | `false`   | When `true` only pixel brightness is compared for pixels determined to be antialiased                                                                                                                                                                  |
+| `tolerances`             | resemble       | object          | `null`    | Resemble option to override preset tolerances for color and brightness                                                                                                                                                                                 |
+| `ssim`                   | ssim           | string          | 'WEBER'   | SSIM algorithm. Valid options are `FAST` or `WEBER`                                                                                                                                                                                                    |
+| `rgb2grayVersion`        | ssim           | string          | 'INTEGER' | SSIM grayscale algorithm. Valid options are `ORIGINAL` or `INTEGER`                                                                                                                                                                                    |
+| `k1`                     | ssim           | number          | `0.01`    | SSIM first stability constant (see [ssim.pdf](https://github.com/obartra/ssim/blob/3f3af6118c78b3ed4f0ff6eb224700c071f29c99/assets/ssim.pdf))                                                                                                          |
+| `k2`                     | ssim           | number          | `0.03`    | SSIM second stability constant (see [ssim.pdf](https://github.com/obartra/ssim/blob/3f3af6118c78b3ed4f0ff6eb224700c071f29c99/assets/ssim.pdf))                                                                                                         |
+| `windowSize`             | ssim           | integer         | `11`      | Window size for the SSIM map (see [ssim.pdf](https://github.com/obartra/ssim/blob/3f3af6118c78b3ed4f0ff6eb224700c071f29c99/assets/ssim.pdf))                                                                                                           |
+| `bitDepth`               | ssim           | integer         | `8`       | The number of bits used to encode each pixel                                                                                                                                                                                                           |
+| `maxSize`                | ssim           | integer         | `256`     | The maximum size on the smallest dimension before downsampling                                                                                                                                                                                         |
+
+Examples:
+
+```cucumber
+# ignore areas of an image (e.g. to avoid constant failures due to loading animations)
+* def boxes =
+"""
+[{
+  top: 483,
+  left: 1085,
+  bottom: 893,
+  right: 1496
+}]
+"""
+* compareImage { baseline: 'baseline.png', latest: 'latest.png', options: { ignoredBoxes: #(boxes) } }
+
+#############################
+### Resemble-only options ###
+#############################
+
+# zero-tolerance for color shifts
+* compareImage { baseline: 'baseline.png', latest: 'latest.png', options: { ignore: 'nothing' } }
+
+# ignore all purple areas
+* def purple =
+"""
+{
+  r: 190,
+  g: 0,
+  b: 255
+}
+"""
+* compareImage { baseline: 'baseline.png', latest: 'latest.png', options: { ignoreAreasColoredWith: '#(purple)' } }
+
+# compare images as grayscale
+* compareImage { baseline: 'baseline.png', latest: 'latest.png', options: { ignoreColors: true } }
+
+# attempt to detect and ignore antialiasing
+* compareImage { baseline: 'baseline.png', latest: 'latest.png', options: { ignoreAntialiasing: true } }
+
+# customize color / brightness tolerances
+* def customTolerances =
+"""
+{
+  red: 4,
+  green: 4,
+  blue: 4,
+  alpha: 4,
+  minBrightness: 4,
+  maxBrightness: 250
+}
+* compareImage { baseline: 'baseline.png', latest: 'latest.png', options: { tolerances: '#(customTolerances)' } }
+
+#########################
+### SSIM-only options ###
+#########################
+
+# switch to `fast` SSIM algorithm
+* compareImage { baseline: 'baseline.png', latest: 'latest.png', options: { ssim: 'FAST' } }
+
+# switch to `original` grayscale SSIM algorithm
+* compareImage { baseline: 'baseline.png', latest: 'latest.png', options: { rgb2grayVersion: 'ORIGINAL' } }
+
+# update SSIM stability constants
+* compareImage { baseline: 'baseline.png', latest: 'latest.png', options: { k1: 0, k2: 0 } }
+
+# update SSIM window size
+* compareImage { baseline: 'baseline.png', latest: 'latest.png', options: { windowSize: 3 } }
+
+# update SSIM bit depth
+* compareImage { baseline: 'baseline.png', latest: 'latest.png', options: { bitDepth: 16 } }
+
+# update SSIM max size
+* compareImage { baseline: 'baseline.png', latest: 'latest.png', options: { maxSize: 512 } }
 ```
 
 ## Type Conversion
@@ -1664,14 +1870,40 @@ These are essential HTTP operations, they focus on setting one (un-named or 'key
 ```cucumber
 Given url 'https://myhost.com/v1/cats'
 ```
-A URL remains constant until you use the `url` keyword again, so this is a good place to set-up the 'non-changing' parts of your REST URL-s.
+Within a `Scenario`, a URL remains constant until you use the `url` keyword again, so this is a good place to set-up the 'non-changing' parts of your REST URL-s.
 
 A URL can take expressions, so the approach below is legal.  And yes, variables can come from global [config](#configuration).
 ```cucumber
 Given url 'https://' + e2eHostName + '/v1/api'
 ```
 
+JavaScript enthusiasts may prefer variable interpolation using backticks:
+```cucumber
+* url `https://${e2eHostName}/v1/api`
+```
+
 If you are trying to build dynamic URLs including query-string parameters in the form: `http://myhost/some/path?foo=bar&search=true` - please refer to the [`param`](#param) keyword.
+
+
+### `configure url`
+When you [`call`](#call) other features, the `url` will be "reset". But if you want the `url` to persist, you can do this:
+
+```cucumber
+Feature:
+
+Scenario:
+* configure url = 'https://httpbin.org'
+* path 'anything'
+* method get
+* call read('@called')
+
+@ignore @called
+Scenario:
+* path 'anything'
+* method get
+```
+
+Note how in the "called" `Scenario` you could omit the `url`. It is easy to change the `url` anytime by using the keyword. Note that you can use variables to set up the `url` any time you need to.
 
 ## `path`
 REST-style path parameters.  Can be expressions that will be evaluated.  Comma delimited values are supported which can be more convenient, and takes care of URL-encoding and appending '/' between path segments as needed.
@@ -1971,6 +2203,8 @@ The single JSON argument needs to be in the form `{ field1: { read: 'file1.ext' 
 And multipart files json
 ```
 
+For an example, refer: [`upload-multiple-files.feature`](karate-demo/src/test/java/demo/upload/upload-multiple-files.feature).
+
 # SOAP
 Since a SOAP request needs special handling, this is the only case where the
 [`method`](#method) step is not used to actually fire the request to the server.
@@ -2026,6 +2260,7 @@ You can adjust configuration settings for the HTTP client used by Karate using t
 
  Key | Type | Description
 ------ | ---- | ---------
+`url` | string | See [`configure url`](#configure-url)
 `headers` | JSON / JS function | See [`configure headers`](#configure-headers)
 `cookies` | JSON / JS function | Just like `configure headers`, but for cookies. You will typically never use this, as response cookies are auto-added to all future requests. If you need to clear cookies at any time, just do `configure cookies = null`
 `logPrettyRequest` | boolean | Pretty print the request payload JSON or XML with indenting (default `false`)
@@ -2057,6 +2292,7 @@ You can adjust configuration settings for the HTTP client used by Karate using t
 `driverTarget` | JSON / Java Object | See [`configure driverTarget`](karate-core#configure-drivertarget)
 `pauseIfNotPerf` | boolean | defaults to `false`, relevant only for performance-testing, see [`karate.pause()`](#karate-pause) and [`karate-gatling`](karate-gatling#think-time)
 `xmlNamespaceAware` | boolean | defaults to `false`, to handle XML namespaces in [some special circumstances](https://github.com/karatelabs/karate/issues/1587)
+`abortSuiteOnFailure` | boolean | defaults to `false`, to not attempt to run any more tests upon a failure
 
 Examples:
 ```cucumber
@@ -2753,6 +2989,14 @@ Scenario: recurse nested array
 
 > the NOT operator e.g. `!contains deep` is not yet supported, please contribute code if you can.
 
+#### `match contains only deep`
+This is exactly like [`match ==`](#match) but the order of arrays does not matter. All arrays no matter the "depth" will be checked in this way.
+
+```cucumber
+* def response = { foo: [ 'a', 'b' ] }
+* match response contains only deep { foo: [ 'b', 'a' ] }
+```
+
 ## Validate every element in a JSON array
 ### `match each`
 The `match` keyword can be made to iterate over all elements in a JSON array using the `each` modifier. Here's how it works:
@@ -2802,6 +3046,42 @@ Symbol  | Evaluates To
 | `_$`  | The 'parent' of 'self' or 'current' item in the list, relevant when using [`match each`](#match-each)
 
 There is a shortcut for `match each` explained in the next section that can be quite useful, especially for 'in-line' schema-like validations.
+
+#### `match each contains deep`
+`match each` can be combined with `contains deep` so that for each JSON object  a “deep contains” match is performed within nested lists or objects. 
+
+This is useful for testing payloads with JSON arrays whose members have a few essential keys that you wish to validate. 
+
+```cucumber
+  Given def response = 
+  """
+  [
+    {
+      "a": 1,
+      "arr": [
+          {
+              "b": 2,
+              "c": 3
+          }
+      ]
+    },
+    {
+      "a": 1,
+      "arr": [
+          {
+              "b": 2,
+              "c": 3
+          },
+          {
+              "b": 4,
+              "c": 5
+          }
+      ]
+    }
+  ]
+  """
+  Then match each response contains deep { a: 1, arr: [ { b: 2 } ] }
+```
 
 ## Schema Validation
 Karate provides a far more simpler and more powerful way than [JSON-schema](http://json-schema.org) to validate the structure of a given payload. You can even mix domain and conditional validations and perform all assertions in a single step.
@@ -3339,6 +3619,7 @@ Operation | Description
 <a name="karate-abort"><code>karate.abort()</code></a> | you can prematurely exit a `Scenario` by combining this with [conditional logic](#conditional-logic) like so: `* if (condition) karate.abort()` - please use [sparingly](https://martinfowler.com/articles/nonDeterminism.html) ! and also see [`configure abortedStepsShouldPass`](#configure)
 <a name="karate-append"><code>karate.append(... items)</code></a> | useful to create lists out of items (which can be lists as well), see [JSON transforms](#json-transforms)
 <a name="karate-appendto"><code>karate.appendTo(name, ... items)</code></a> | useful to append to a list-like variable (that has to exist) in scope, see [JSON transforms](#json-transforms) - the first argument can be a reference to an array-like variable or even the name (string) of an existing variable which is list-like
+<a name="karate-compareimage"><code>karate.compareImage(baseline, latest, [options])</code></a> | compare two images the same way that [`compareImage`](#compare-image) works (with an optional `options` argument), returns an object with the following keys: `baseline`, `latest`, `mismatchPercentage`, `engine`, `failureThreshold` and optionally: `error`, `isBaselineMissing`, `isScaleMismatch`, `isMismatch`, `resembleMismatchPercentage`, `ssimMismatchPercentage`
 <a name="karate-call"><code>karate.call(fileName, [arg])</code></a> | invoke a [`*.feature` file](#calling-other-feature-files) or a [JavaScript function](#calling-javascript-functions) the same way that [`call`](#call) works (with an optional solitary argument), see [`call()` vs `read()`](#call-vs-read) for details
 <a name="karate-callsingle"><code>karate.callSingle(fileName, [arg])</code></a> | like the above, but guaranteed to run **only once** even across multiple features - see [`karate.callSingle()`](#karatecallsingle)
 <a name="karate-configure"><code>karate.configure(key, value)</code></a> | does the same thing as the [`configure`](#configure) keyword, and a very useful example is to do `karate.configure('connectTimeout', 5000);` in [`karate-config.js`](#configuration) - which has the 'global' effect of not wasting time if a connection cannot be established within 5 seconds
@@ -3389,6 +3670,8 @@ Operation | Description
 <a name="karate-setall"><code>karate.set(object)</code></a> | where the single argument is expected to be a `Map` or JSON-like, and will perform the above `karate.set()` operation for all key-value pairs in one-shot, see [example](karate-junit4/src/test/java/com/intuit/karate/junit4/demos/set.feature)
 <a name="karate-setpath"><code>karate.set(name, path, value)</code></a> | only needed when you need to conditionally build payload elements, especially XML. This is best explained via [an example](karate-junit4/src/test/java/com/intuit/karate/junit4/xml/xml.feature#L211), and it behaves the same way as the [`set`](#set) keyword. Also see [`eval`](#eval).
 <a name="karate-setxml"><code>karate.setXml(name, xmlString)</code></a> | rarely used, refer to the example above
+<a name="karate-setup"><code>karate.setup([name])</code></a> | call a `Scenario` tagged with the built-in [`@setup`](#setup) annotation
+<a name="karate-setuponce"><code>karate.setupOnce([name])</code></a> | like [`karate.setup()`](#karate-setup) above, but cache the result so that the "setup" runs only once
 <a name="karate-signal"><code>karate.signal(result)</code></a> | trigger an event that [`karate.listen(timeout)`](#karate-listen) is waiting for, and pass the data, see [async](#async)
 <a name="karate-sizeof"><code>karate.sizeOf(object)</code></a> | returns the size of the map-like or list-like object
 <a name="karate-sort"><code>karate.sort(list, function)</code></a> | sorts the list using the provided custom function called for each item in the list (and the optional second argument is the item index) e.g. `karate.sort(myList, x => x.val)`, and the second / function argument is not needed if the list is of plain strings or numbers
@@ -3449,7 +3732,7 @@ The contents of `my-signin.feature` are shown below. A few points to note:
   * the data 'return' mechanism is 'safe', there is no danger of the 'called' script over-writing any variables in the 'calling' (or parent) script (unless you use [shared scope](#shared-scope))
   * the need to explicitly 'unpack' variables by name from the returned 'envelope' keeps things readable and maintainable in the 'caller' script
 
-> Note that only [variables](#def) and [configuration settings](#configure) will be passed. You can't do things such as `* url 'http://foo.bar'` and expect the URL to be set in the "called" feature. Use a variable in the "called" feature instead, for e.g. `* url myUrl`.
+> Note that only [variables](#def) and [configuration settings](#configure) will be passed. You can't do things such as `* url 'http://foo.bar'` and expect the URL to be set in the "called" feature. Use a variable in the "called" feature instead, for e.g. `* url myUrl` or take a look at [`configure url`](#configure-url).
 
 ```cucumber
 Feature: here are the contents of 'my-signin.feature'
@@ -3834,7 +4117,6 @@ You can always use a JavaScript [`switch case`](https://www.w3schools.com/js/js_
 You can find more details [here](https://stackoverflow.com/a/59162760/143475). Also note how you can wrap the LHS of the [`match`](#match) in parentheses in the rare cases where the parser expects JsonPath by default.
 
 ### Abort and Fail
-
 In some rare cases you need to exit a `Scenario` based on some condition. You can use [`karate.abort()`](#karate-abort) like so:
 
 ```cucumber
@@ -4017,6 +4299,7 @@ Tag | Description
 `@ignore` | Any `Scenario` with (or that has inherited) this tag will be skipped at run-time. This does not apply to anything that is "called" though
 `@parallel` | See [`@parallel=false`](#parallelfalse)
 `@report` | See [`@report=false`](#reportfalse)
+`@setup` | See [`@setup`](#setup)
 `@env` | See below
 `@envnot` | See below
 
@@ -4148,6 +4431,16 @@ Refer to this example:
 You *can* use `karate.callSingle()` directly in a `*.feature` file, but it logically fits better in the global "bootstrap". Ideally it should return "pure JSON" and note that you always get a "deep clone" of the cached result object.
 
 IMPORTANT: There are some restrictions when using [`callonce`](#callonce) or `karate.callSingle()` especially within [`karate-config.js`](#karate-configjs). Ideally you should return only *pure* JSON data (or a primitive string, number etc.). Keep in mind that the reason this exists is to "cache" data, and *not* behavior. So if you return complex objects such as a custom Java instance or a JS function that depends on complex objects, this [*may* cause issues when you run in parallel](https://github.com/intuit/karate/issues/1558). If you really need to re-use a Java function, see [Java Function References](#java-function-references).
+
+#### Multiple calls using `karate.callSingle()`
+The first argument to `karate.callSingle()` is used as the "cache key". So if you tried to re-use the same feature but with multiple arguments, things will not work as you expect. But you can suffix a `?name` to the feature to de-dupe it, like so:
+
+```js
+var adminResponse = karate.callSingle('classpath:get-token.feature?admin', {'username': 'admin', 'password': 'password123' });
+var userResponse = karate.callSingle('classpath:get-token.feature?user', {'username': 'user', 'password': 'password456' });
+```
+
+Now `adminResponse` and `userResponse` will be different, even though the same feature file is being used for a `callSingle()`.
 
 #### `configure callSingleCache`
 When re-running tests in development mode and when your test suite depends on say an `Authorization` header set by [`karate.callSingle()`](#karatecallsingle), you can cache the results locally to a file, which is very convenient when your "auth token" is valid for a period of a few minutes - which typically is the case. This means that as long as the token "on file" is valid, you can save time by not having to make the one or two HTTP calls needed to "sign-in" or create "throw-away" users in your SSO store.
@@ -4284,18 +4577,13 @@ Also see the option below, where you can data-drive an `Examples:` table using J
 ### Dynamic Scenario Outline
 You can feed an `Examples` table from a custom data-source, which is great for those situations where the table-content is dynamically resolved at run-time. This capability is triggered when the table consists of a single "cell", i.e. there is exactly one row and one column in the table.
 
-This technique has one caveat to be aware of regarding isolation of tests running in parallel. The `Background` section is only run once in order to set up the list of dynamic scenarios. This means that any other steps within the `Background` are not repeated for each individual example. This is different behaviour from normal scenarios where each `Scenario` also runs the `Background` steps.
-
 #### JSON Array Data Source
-The "scenario expression" result is expected to be an array of JSON objects. Here is an example (also see [this video](https://twitter.com/KarateDSL/status/1051433711814627329)):
+The "scenario expression" result is expected to be an array of JSON objects. Here is an example:
 
 ```cucumber
-Feature: scenario outline using a dynamic table
+Feature: scenario outline using a JSON array as the data-source
 
-Background:
-    * def kittens = read('../callarray/kittens.json')
-
-Scenario Outline: cat name: <name>
+Scenario Outline: cat name: ${name}
     Given url demoBaseUrl
     And path 'cats'
     And request { name: '#(name)' }
@@ -4304,12 +4592,83 @@ Scenario Outline: cat name: <name>
     And match response == { id: '#number', name: '#(name)' }
 
     # the single cell can be any valid karate expression
-    # and even reference a variable defined in the Background
     Examples:
-    | kittens |
+    | read('../callarray/kittens.json') |
 ```
 
-The great thing about this approach is that you can set-up the JSON array using the `Background` section. Any [Karate expression](#karate-expressions) can be used in the "cell expression", and you can even use [Java-interop](#calling-java) to use external data-sources such as a database. Note that Karate has built-in support for [CSV files](#csv-files) and here is an example: [`dynamic-csv.feature`](karate-demo/src/test/java/demo/outline/dynamic-csv.feature).
+You can see the structure of the data here: [`kittens.json`](karate-demo/src/test/java/demo/callarray/kittens.json)
+
+Any [Karate expression](#karate-expressions) can be used in the "cell expression", and you can even use [Java-interop](#calling-java) to use external data-sources such as a database.
+
+Note that Karate has built-in support for [CSV files](#csv-files) and here is an example: [`dynamic-csv.feature`](karate-demo/src/test/java/demo/outline/dynamic-csv.feature).
+
+#### `@setup`
+In cases where the data-source needs multiple steps, for e.g. if an API needs to be called to get a JSON array, you can call a separate `Scenario` to "set up" this data. The `@setup` tag is built-in for this purpose and any `Scenario` tagged with this will behave like [`@ignore`](#special-tags). So the only way to call this `Scenario` is by using the `karate.setup()` JS API.
+
+Here is the above example re-written to do so:
+
+```cucumber
+Feature: scenario outline using a JSON array as the data-source
+
+@setup
+Scenario:
+* def kittens = read('../callarray/kittens.json')
+
+Scenario Outline: cat name: ${name}
+    Given url demoBaseUrl
+    And path 'cats'
+    And request { name: '#(name)' }
+    When method post
+    Then status 200
+    And match response == { id: '#number', name: '#(name)' }
+
+    Examples:
+    | karate.setup().kittens |
+```
+
+The result of `karate.setup()` will be a JSON of all the variables created within the `Scenario` tagged with `@setup`. Note how we "unpack" the `kittens` and use it to "data drive" the `Scenario Outline`. You can get really creative and use [JS functions to filter data](https://github.com/karatelabs/karate/issues/1905#issuecomment-1207342290) for different needs.
+
+Though not really recommended, you can have multiple `Scenario`-s within a `Feature` tagged with `@setup`. But in that case you should de-dupe them using a name:
+
+```cucumber
+Feature:
+
+@setup=myname
+Scenario:
+* def data = [{ a: 1 }, { a: 2}]
+
+Scenario Outline:
+* print __row
+
+Examples:
+| karate.setup('myname').data |
+```
+
+And since it is common to run a `@setup` `Scenario` only once per-feature you can call `karate.setupOnce()`. In the feature below, the `* print 'in setup'` step will run only once. Also note how the `Background` will run 4 times (twice per `Scenario`).
+
+```cucumber
+Feature:
+
+Background:
+* print 'in background', __num
+
+@setup
+Scenario:
+* print 'in setup'
+* def data = [{a:1}, {a:2}]
+
+Scenario Outline: first
+* print __row
+
+Examples:
+| karate.setupOnce().data |
+
+Scenario Outline: second
+* print __row
+
+Examples:
+| karate.setupOnce().data |
+```
 
 #### JSON Function Data Source
 An advanced option is where the "scenario expression" returns a JavaScript "generator" function. This is a very powerful way to generate test-data without having to load a large number of data rows into memory. The function has to return a JSON object. To signal the end of the data, just return `null`. The function argument is the row-index, so you can easily determine *when* to stop the generation of data. Here is an example:
@@ -4317,10 +4676,11 @@ An advanced option is where the "scenario expression" returns a JavaScript "gene
 ```cucumber
 Feature: scenario outline using a dynamic generator function
 
-Background:
+@setup
+Scenario:
     * def generator = function(i){ if (i == 20) return null; return { name: 'cat' + i, age: i } }
 
-Scenario Outline: cat name: <name>
+Scenario Outline: cat name: ${name}
     Given url demoBaseUrl
     And path 'cats'
     And request { name: '#(name)', age: '#(age)' }
@@ -4329,5 +4689,5 @@ Scenario Outline: cat name: <name>
     And match response == { id: '#number', name: '#(name)' }
 
     Examples:
-    | generator |
+    | karate.setup().generator |
 ```

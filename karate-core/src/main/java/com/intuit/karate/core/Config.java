@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright 2020 Intuit Inc.
+ * Copyright 2022 Karate Labs Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -51,6 +51,7 @@ public class Config {
     public static final int DEFAULT_TIMEOUT = 30000;
     public static final int DEFAULT_HIGHLIGHT_DURATION = 3000;
 
+    private String url;
     private boolean sslEnabled = false;
     private String sslAlgorithm = "TLS";
     private String sslKeyStore;
@@ -90,6 +91,7 @@ public class Config {
     private Variable responseHeaders = Variable.NULL;
     private List<Method> continueOnStepFailureMethods = new ArrayList<>();
     private boolean continueAfterContinueOnStepFailure;
+    private boolean abortSuiteOnFailure;
 
     // retry config
     private int retryInterval = DEFAULT_RETRY_INTERVAL;
@@ -105,6 +107,9 @@ public class Config {
     private int maxConnectionsPerRoute = 50;
     private int maxConnectionsTotal = 1000;
 
+    // image comparison config
+    private Map<String, Object> imageComparisonOptions;
+
     public Config() {
         // zero arg constructor
     }
@@ -117,6 +122,9 @@ public class Config {
     public boolean configure(String key, Variable value) { // TODO use enum
         key = StringUtils.trimToEmpty(key);
         switch (key) {
+            case "url":
+                url = value.getAsString();
+                return false;
             case "headers":
                 headers = value;
                 return false;
@@ -201,6 +209,9 @@ public class Config {
             case "abortedStepsShouldPass":
                 abortedStepsShouldPass = value.isTrue();
                 return false;
+            case "abortSuiteOnFailure":
+                abortSuiteOnFailure = value.isTrue();
+                return false;
             case "callSingleCache":
                 if (value.isMap()) {
                     Map<String, Object> map = value.getValue();
@@ -211,7 +222,35 @@ public class Config {
             case "logModifier":
                 logModifier = value.getValue();
                 return false;
+            case "imageComparison":
+                imageComparisonOptions = value.getValue();
+                return false;
+            case "continueOnStepFailure":
+                continueOnStepFailureMethods.clear(); // clears previous configuration - in case someone is trying to chain these and forgets resetting the previous one
+                boolean enableContinueOnStepFailureFeature = false;
+                Boolean continueAfterIgnoredFailure = null;
+                List<String> stepKeywords = null;
+                if (value.isMap()) {
+                    Map<String, Object> map = value.getValue();
+                    stepKeywords = (List<String>) map.get("keywords");
+                    continueAfterIgnoredFailure = (Boolean) map.get("continueAfter");
+                    enableContinueOnStepFailureFeature = map.get("enabled") != null && (Boolean) map.get("enabled");
+                }
+                if (value.isTrue() || enableContinueOnStepFailureFeature) {
+                    continueOnStepFailureMethods.addAll(stepKeywords == null ? StepRuntime.METHOD_MATCH : StepRuntime.findMethodsByKeywords(stepKeywords));
+                } else {
+                    if (stepKeywords == null) {
+                        continueOnStepFailureMethods.clear();
+                    } else {
+                        continueOnStepFailureMethods.removeAll(StepRuntime.findMethodsByKeywords(stepKeywords));
+                    }
+                }
+                if (continueAfterIgnoredFailure != null) {
+                    continueAfterContinueOnStepFailure = continueAfterIgnoredFailure;
+                }
+                return false;
             // here on the http client has to be re-constructed ================
+            // and we return true instead of false
             case "charset":
                 charset = value.isNull() ? null : Charset.forName(value.getAsString());
                 return true;
@@ -302,6 +341,7 @@ public class Config {
     }
 
     public Config(Config parent) {
+        url = parent.url;
         sslEnabled = parent.sslEnabled;
         sslAlgorithm = parent.sslAlgorithm;
         sslTrustStore = parent.sslTrustStore;
@@ -348,6 +388,16 @@ public class Config {
         continueAfterContinueOnStepFailure = parent.continueAfterContinueOnStepFailure;
         maxConnectionsPerRoute = parent.maxConnectionsPerRoute;
         maxConnectionsTotal = parent.maxConnectionsTotal;
+        abortSuiteOnFailure = parent.abortSuiteOnFailure;
+        imageComparisonOptions = parent.imageComparisonOptions;
+    }
+
+    public void setUrl(String url) {
+        this.url = url;
+    }
+
+    public String getUrl() {
+        return url;
     }
 
     public void setCookies(Variable cookies) {
@@ -569,4 +619,16 @@ public class Config {
     public int getMaxConnectionsPerRoute() {return maxConnectionsPerRoute;}
 
     public int getMaxConnectionsTotal() {return maxConnectionsTotal;}
+    public void setAbortSuiteOnFailure(boolean abortSuiteOnFailure) {
+        this.abortSuiteOnFailure = abortSuiteOnFailure;
+    }
+
+    public boolean isAbortSuiteOnFailure() {
+        return abortSuiteOnFailure;
+    }
+
+    public Map<String, Object> getImageComparisonOptions() {
+        return imageComparisonOptions;
+    }
+
 }

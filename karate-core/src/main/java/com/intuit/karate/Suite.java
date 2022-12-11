@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright 2020 Intuit Inc.
+ * Copyright 2022 Karate Labs Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,7 +23,7 @@
  */
 package com.intuit.karate;
 
-import com.intuit.karate.core.Feature;
+import com.intuit.karate.core.FeatureCall;
 import com.intuit.karate.core.FeatureResult;
 import com.intuit.karate.core.FeatureRuntime;
 import com.intuit.karate.driver.DriverRunner;
@@ -51,6 +51,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
 import org.slf4j.LoggerFactory;
@@ -66,6 +67,7 @@ public class Suite implements Runnable {
     public final long startTime;
     protected long endTime;
     protected int skippedCount;
+    private AtomicBoolean abort = new AtomicBoolean(false);
 
     public final String env;
     public final String tagSelector;
@@ -78,7 +80,7 @@ public class Suite implements Runnable {
     public final int threadCount;
     public final int timeoutMinutes;
     public final int featuresFound;
-    public final List<Feature> features;
+    public final List<FeatureCall> features;
     public final List<CompletableFuture> futures;
     public final Set<File> featureResultFiles;
     public final Collection<RuntimeHook> hooks;
@@ -223,7 +225,7 @@ public class Suite implements Runnable {
             }
             hooks.forEach(h -> h.beforeSuite(this));
             int index = 0;
-            for (Feature feature : features) {
+            for (FeatureCall feature : features) {
                 final int featureNum = ++index;
                 FeatureRuntime fr = FeatureRuntime.of(this, feature);
                 final CompletableFuture future = new CompletableFuture();
@@ -257,6 +259,14 @@ public class Suite implements Runnable {
             }
             hooks.forEach(h -> h.afterSuite(this));
         }
+    }
+    
+    public void abort() {
+        abort.set(true);
+    }
+    
+    public boolean isAborted() {
+        return abort.get();
     }
 
     public void saveFeatureResults(FeatureResult fr) {
@@ -300,6 +310,7 @@ public class Suite implements Runnable {
 
     public Stream<FeatureResult> getFeatureResults() {
         return featureResultFiles.stream()
+                .sorted()
                 .map(file -> FeatureResult.fromKarateJson(workingDir, Json.of(FileUtils.toString(file)).asMap()));
     }
 
@@ -308,7 +319,7 @@ public class Suite implements Runnable {
     }
 
     public ScenarioResult retryScenario(Scenario scenario) {
-        FeatureRuntime fr = FeatureRuntime.of(this, scenario.getFeature());
+        FeatureRuntime fr = FeatureRuntime.of(this, new FeatureCall(scenario.getFeature()));
         ScenarioRuntime runtime = new ScenarioRuntime(fr, scenario);
         runtime.run();
         return runtime.result;

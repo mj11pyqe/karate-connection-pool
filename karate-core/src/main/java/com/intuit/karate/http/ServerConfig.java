@@ -55,9 +55,10 @@ public class ServerConfig {
 
     private Function<Request, ServerContext> contextFactory = request -> {
         ServerContext context = new ServerContext(this, request);
-        context.setHttpGetAllowed(true);
         if (context.setApiIfPathStartsWith("/api/")) {
             context.setLockNeeded(true);
+        } else {
+            context.setHttpGetAllowed(true);
         }
         return context;
     };
@@ -118,8 +119,8 @@ public class ServerConfig {
 
     public boolean isNoCache() {
         return noCache;
-    }    
-    
+    }
+
     public boolean isDevMode() {
         return devMode;
     }
@@ -185,11 +186,11 @@ public class ServerConfig {
         autoCreateSession = value;
         return this;
     }
-    
+
     public ServerConfig noCache(boolean value) {
         noCache = value;
         return this;
-    }    
+    }
 
     public ServerConfig devMode(boolean value) {
         devMode = value;

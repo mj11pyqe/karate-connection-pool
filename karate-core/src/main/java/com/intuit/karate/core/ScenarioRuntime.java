@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright 2020 Intuit Inc.
+ * Copyright 2022 Karate Labs Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -30,6 +30,7 @@ import com.intuit.karate.RuntimeHook;
 import com.intuit.karate.ScenarioActions;
 import com.intuit.karate.StringUtils;
 import com.intuit.karate.graal.JsEngine;
+import com.intuit.karate.graal.JsValue;
 import com.intuit.karate.http.ResourceType;
 import com.intuit.karate.shell.StringLogAppender;
 
@@ -59,8 +60,8 @@ public class ScenarioRuntime implements Runnable {
     public final boolean perfMode;
     public final boolean dryRun;
     public final LogAppender logAppender;
-    
-    private boolean skipBackground; 
+
+    private boolean skipBackground;
     private boolean ignoringFailureSteps;
 
     public ScenarioRuntime(FeatureRuntime featureRuntime, Scenario scenario) {
@@ -83,19 +84,29 @@ public class ScenarioRuntime implements Runnable {
         actions = new ScenarioActions(engine);
         this.scenario = scenario;
         if (scenario.isDynamic() && !scenario.isOutlineExample()) { // from dynamic scenario iterator
-            steps = Collections.emptyList();             
+            steps = Collections.emptyList();
             skipped = true; // ensures run() is a no-op
             magicVariables = Collections.emptyMap();
         } else {
             magicVariables = initMagicVariables();
-        }        
-        result = new ScenarioResult(scenario);        
+        }
+        result = new ScenarioResult(scenario);
+        if (featureRuntime.setupResult != null) {
+            StepResult sr = result.addFakeStepResult("@setup", null);
+            List<FeatureResult> list = new ArrayList(1);
+            FeatureResult fr = new FeatureResult(featureRuntime.featureCall.feature);
+            fr.setCallDepth(1);
+            fr.addResult(featureRuntime.setupResult);
+            list.add(fr);
+            sr.addCallResults(list);
+            featureRuntime.setupResult = null;
+        }
         dryRun = featureRuntime.suite.dryRun;
         tags = scenario.getTagsEffective();
         reportDisabled = perfMode ? true : tags.valuesFor("report").isAnyOf("false");
-        selectedForExecution = isSelectedForExecution(featureRuntime, scenario, tags);        
+        selectedForExecution = isSelectedForExecution(featureRuntime, scenario, tags);
     }
-    
+
     private Map<String, Object> initMagicVariables() {
         // magic variables are only in the JS engine - [ see ScenarioEngine.init() ]
         // and not "visible" and tracked in ScenarioEngine.vars
@@ -136,9 +147,13 @@ public class ScenarioRuntime implements Runnable {
         return stopped;
     }
 
+    public boolean isSkipBackground() {
+        return this.skipBackground;
+    }
+
     public void setSkipBackground(boolean skipBackground) {
         this.skipBackground = skipBackground;
-    }    
+    }
 
     public String getEmbedFileName(ResourceType resourceType) {
         String extension = resourceType == null ? null : resourceType.getExtension();
@@ -251,7 +266,7 @@ public class ScenarioRuntime implements Runnable {
 
     public Map<String, Object> getScenarioInfo() {
         Map<String, Object> info = new HashMap(5);
-        File featureFile = featureRuntime.feature.getResource().getFile();
+        File featureFile = featureRuntime.featureCall.feature.getResource().getFile();
         if (featureFile != null) {
             info.put("featureDir", featureFile.getParent());
             info.put("featureFileName", featureFile.getName());
@@ -277,13 +292,15 @@ public class ScenarioRuntime implements Runnable {
             return;
         }
         try {
-            Variable fun = engine.evalJs("(" + js + ")");
-            if (!fun.isJsFunction()) {
-                logger.warn("not a valid js function: {}", displayName);
-                return;
+            synchronized (JsValue.LOCK) {
+                Variable fun = engine.evalJs("(" + js + ")");
+                if (!fun.isJsFunction()) {
+                    logger.warn("not a valid js function: {}", displayName);
+                    return;
+                }
+                Map<String, Object> map = engine.getOrEvalAsMap(fun);
+                engine.setVariables(map);
             }
-            Map<String, Object> map = engine.getOrEvalAsMap(fun);
-            engine.setVariables(map);
         } catch (Exception e) {
             String message = ">> " + scenario.getDebugInfo() + "\n>> " + displayName + " failed\n>> " + e.getMessage();
             error = JsEngine.fromJsEvalException(js, e, message);
@@ -294,8 +311,7 @@ public class ScenarioRuntime implements Runnable {
 
     private static boolean isSelectedForExecution(FeatureRuntime fr, Scenario scenario, Tags tags) {
         org.slf4j.Logger logger = FeatureRuntime.logger;
-        Feature feature = scenario.getFeature();
-        int callLine = feature.getCallLine();
+        int callLine = fr.featureCall.callLine;
         if (callLine != -1) {
             int sectionLine = scenario.getSection().getLine();
             int scenarioLine = scenario.getLine();
@@ -306,7 +322,7 @@ public class ScenarioRuntime implements Runnable {
             logger.trace("skipping scenario at line: {}, needed: {}", scenario.getLine(), callLine);
             return false;
         }
-        String callName = feature.getCallName();
+        String callName = fr.featureCall.callName;
         if (callName != null) {
             if (scenario.getName().matches(callName)) {
                 logger.info("found scenario at line: {} - {}", scenario.getLine(), callName);
@@ -315,16 +331,16 @@ public class ScenarioRuntime implements Runnable {
             logger.trace("skipping scenario at line: {} - {}, needed: {}", scenario.getLine(), scenario.getName(), callName);
             return false;
         }
-        String callTag = feature.getCallTag();        
+        String callTag = fr.featureCall.callTag;
         if (callTag != null && (!fr.caller.isNone() || fr.perfHook != null)) {
-                // only if this is a legit "call" or a gatling "call by tag"
-                if (tags.contains(callTag)) {
-                    logger.info("{} - call by tag at line {}: {}", fr, scenario.getLine(), callTag);
-                    return true;
-                }
-                logger.trace("skipping scenario at line: {} with call by tag effective: {}", scenario.getLine(), callTag);
-                return false;                
+            // only if this is a legit "call" or a gatling "call by tag"
+            if (tags.contains(callTag)) {
+                logger.info("{} - call by tag at line {}: {}", fr, scenario.getLine(), callTag);
+                return true;
             }
+            logger.trace("skipping scenario at line: {} with call by tag effective: {}", scenario.getLine(), callTag);
+            return false;
+        }
         if (fr.caller.isNone()) {
             if (tags.evaluate(fr.suite.tagSelector, fr.suite.env)) {
                 logger.trace("matched scenario at line: {} with tags effective: {}", scenario.getLine(), tags.getTags());
@@ -339,7 +355,11 @@ public class ScenarioRuntime implements Runnable {
 
     //==========================================================================
     //
-    public void beforeRun() {        
+    public void beforeRun() {
+        if (featureRuntime.caller.isNone() && featureRuntime.suite.isAborted()) {
+            skipped = true;
+            return;
+        }
         steps = skipBackground ? scenario.getSteps() : scenario.getStepsIncludingBackground();
         ScenarioEngine.set(engine);
         engine.init();
@@ -391,6 +411,9 @@ public class ScenarioRuntime implements Runnable {
         } finally {
             if (!skipped) {
                 afterRun();
+                if (isFailed() && engine.getConfig().isAbortSuiteOnFailure()) {
+                    featureRuntime.suite.abort();
+                }
             }
             if (caller.isNone()) {
                 logAppender.close(); // reclaim memory
@@ -489,6 +512,7 @@ public class ScenarioRuntime implements Runnable {
             }
             addStepLogEmbedsAndCallResults();
         } catch (Exception e) {
+            error = e;
             logError("scenario [cleanup] failed\n" + e.getMessage());
             currentStepResult = result.addFakeStepResult("scenario [cleanup] failed", e);
         }

@@ -2,6 +2,7 @@ package driver;
 
 import com.intuit.karate.http.HttpServer;
 import com.intuit.karate.http.ServerConfig;
+import com.intuit.karate.http.ServerContext;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -17,9 +18,9 @@ public class ServerStarter {
     }
 
     public static HttpServer start(int port) {
-        ServerConfig config = new ServerConfig("src/test/java/driver/html")
+        ServerConfig config = new ServerConfig("src/test/java/driver/html")                
                 .autoCreateSession(true)
-                .homePagePath("00");
+                .homePagePath("/00");
         return HttpServer.config(config).http(port).build();
     }
 

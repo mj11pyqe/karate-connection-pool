@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright 2019 Intuit Inc.
+ * Copyright 2022 Karate Labs Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -70,7 +70,7 @@ public class IntellijHook implements RuntimeHook {
     @Override
     public boolean beforeFeature(FeatureRuntime fr) {
         if (fr.caller.depth == 0) {
-            Feature feature = fr.feature;
+            Feature feature = fr.featureCall.feature;
             String path = feature.getResource().getUri().toString();
             log(String.format(TEMPLATE_TEST_SUITE_STARTED, getCurrentTime(), path + ":" + feature.getLine(), escape(feature.getNameForReport())));
         }
@@ -80,7 +80,7 @@ public class IntellijHook implements RuntimeHook {
     @Override
     public void afterFeature(FeatureRuntime fr) {
         if (fr.caller.depth == 0) {
-            log(String.format(TEMPLATE_TEST_SUITE_FINISHED, getCurrentTime(), escape(fr.feature.getNameForReport())));
+            log(String.format(TEMPLATE_TEST_SUITE_FINISHED, getCurrentTime(), escape(fr.featureCall.feature.getNameForReport())));
         }
     }
 

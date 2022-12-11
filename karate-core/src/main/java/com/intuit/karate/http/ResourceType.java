@@ -34,6 +34,7 @@ import org.w3c.dom.Node;
  */
 public enum ResourceType {
 
+    DEFERRED_JS("text/javascript", vals("javascript"), vals("js")),
     JS("text/javascript", vals("javascript"), vals("js")),
     JSON("application/json", vals("json"), vals("json")),
     CSS("text/css", vals("css"), vals("css")),
@@ -47,7 +48,8 @@ public enum ResourceType {
     HTML("text/html", vals("html"), vals("html", "htm")),
     XML("application/xml", vals("xml"), vals("xml")),
     TEXT("text/plain", vals("plain"), vals("txt")),
-    MULTIPART("multipart/form-data", vals("multipart"), vals()),
+    WOFF2("application/font-woff2", vals("woff2"), vals("woff2")),
+    MULTIPART("multipart/form-data", vals("multipart"), vals()),    
     URLENCODED("application/x-www-form-urlencoded", vals("urlencoded"), vals()),
     BINARY("application/octet-stream", vals("octet"), vals()),
     RDFXML("application/rdf+xml", vals("rdf", "rdf+xml"), vals("rdf")),
@@ -167,6 +169,16 @@ public enum ResourceType {
             case JPG:
             case PDF:
             case MP4:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    public boolean isScript() {
+        switch (this){
+            case JS:
+            case DEFERRED_JS:
                 return true;
             default:
                 return false;

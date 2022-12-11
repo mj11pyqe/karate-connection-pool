@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright 2018 Intuit Inc.
+ * Copyright 2022 Karate Labs Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -61,9 +61,6 @@ public class FeatureResult {
 
     public void printStats() {
         String featureName = feature.getResource().getPrefixedPath();
-        if (feature.getCallLine() != -1) {
-            featureName = featureName + ":" + feature.getCallLine();
-        }
         StringBuilder sb = new StringBuilder();
         sb.append("---------------------------------------------------------\n");
         sb.append("feature: ").append(featureName).append('\n');

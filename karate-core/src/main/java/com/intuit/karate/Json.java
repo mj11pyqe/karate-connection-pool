@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright 2020 Intuit Inc.
+ * Copyright 2022 Karate Labs Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -269,7 +269,7 @@ public class Json {
                     if (!pathExists(pair.left)) { // a necessary repetition
                         doc.set(pair.left, new LinkedHashMap());
                     }
-                    doc.put(pair.left, pair.right, new LinkedHashMap());
+                    doc.put(pair.left, pair.right, array ? new ArrayList() : new LinkedHashMap());
                 }
             } else {
                 doc.put(pair.left, pair.right, array ? new ArrayList() : new LinkedHashMap());
