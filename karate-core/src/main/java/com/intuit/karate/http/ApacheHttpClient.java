@@ -49,6 +49,8 @@ import java.util.Map;
 import java.util.Set;
 import javax.net.ssl.SSLContext;
 import org.apache.http.Header;
+import org.apache.http.HeaderElement;
+import org.apache.http.HeaderElementIterator;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpException;
 import org.apache.http.HttpHost;
@@ -79,13 +81,18 @@ import org.apache.http.cookie.MalformedCookieException;
 import org.apache.http.impl.client.BasicCookieStore;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.DefaultClientConnectionReuseStrategy;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.client.LaxRedirectStrategy;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.impl.conn.SystemDefaultRoutePlanner;
 import org.apache.http.impl.cookie.DefaultCookieSpec;
+import org.apache.http.message.BasicHeaderElementIterator;
+import org.apache.http.protocol.HTTP;
 import org.apache.http.protocol.HttpContext;
 import org.apache.http.ssl.SSLContextBuilder;
 import org.apache.http.ssl.SSLContexts;
+import org.apache.http.util.EntityUtils;
 
 /**
  *
@@ -98,6 +105,7 @@ public class ApacheHttpClient implements HttpClient, HttpRequestInterceptor {
     private final HttpLogger httpLogger;
 
     private HttpClientBuilder clientBuilder;
+    private static PoolingHttpClientConnectionManager connectionManager;
     private CookieStore cookieStore;
 
     public static class LenientCookieSpec extends DefaultCookieSpec {
@@ -130,12 +138,43 @@ public class ApacheHttpClient implements HttpClient, HttpRequestInterceptor {
         this.engine = engine;
         logger = engine.logger;
         httpLogger = new HttpLogger(logger);
+        createConnectionManager(engine.getConfig());
         configure(engine.getConfig());
     }
 
+    private static synchronized void createConnectionManager(Config config) {
+        if (connectionManager == null) {
+            connectionManager = new PoolingHttpClientConnectionManager();
+            connectionManager.setMaxTotal(config.getMaxConnectionsTotal());
+            connectionManager.setDefaultMaxPerRoute(config.getMaxConnectionsPerRoute());
+            connectionManager.setDefaultSocketConfig(SocketConfig.custom().setSoTimeout(config.getReadTimeout()).build());
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> connectionManager.shutdown()));
+        }
+        connectionManager.closeExpiredConnections();
+    }
+
     private void configure(Config config) {
-        clientBuilder = HttpClientBuilder.create();
-        clientBuilder.disableAutomaticRetries();
+
+        clientBuilder = HttpClientBuilder.create()
+            .setKeepAliveStrategy((response, context) -> {
+                HeaderElementIterator it = new BasicHeaderElementIterator
+                    (response.headerIterator(HTTP.CONN_KEEP_ALIVE));
+                while (it.hasNext()) {
+                    HeaderElement he = it.nextElement();
+                    String param = he.getName();
+                    String value = he.getValue();
+                    if (value != null && param.equalsIgnoreCase
+                        ("timeout")) {
+                        return Long.parseLong(value) * 1000;
+                    }
+                }
+                return config.getConnectTimeout();
+            })
+            .setConnectionReuseStrategy(new DefaultClientConnectionReuseStrategy())
+            .setConnectionManager(connectionManager)
+            .disableAutomaticRetries();
+
+
         if (!config.isFollowRedirects()) {
             clientBuilder.disableRedirectHandling();
         } else { // support redirect on POST by default
@@ -283,7 +322,7 @@ public class ApacheHttpClient implements HttpClient, HttpRequestInterceptor {
             }
             request.setEndTime(System.currentTimeMillis());
         } catch (Exception e) {
-            if (e instanceof ClientProtocolException && e.getCause() != null) { // better error message                
+            if (e instanceof ClientProtocolException && e.getCause() != null) { // better error message
                 throw new RuntimeException(e.getCause());
             } else {
                 throw new RuntimeException(e);
@@ -298,16 +337,16 @@ public class ApacheHttpClient implements HttpClient, HttpRequestInterceptor {
         Set<String> alreadyMerged = new HashSet(requestCookieHeaders.length);
         for (Header ch : requestCookieHeaders) {
             String requestCookieValue = ch.getValue();
-            io.netty.handler.codec.http.cookie.Cookie c = ClientCookieDecoder.LAX.decode(requestCookieValue);            
+            io.netty.handler.codec.http.cookie.Cookie c = ClientCookieDecoder.LAX.decode(requestCookieValue);
             mergedCookieValues.add(requestCookieValue);
             alreadyMerged.add(c.name());
-        }        
+        }
         for (Cookie c : storedCookies) {
             if (c.getValue() != null) {
                 String name = c.getName();
                 if (alreadyMerged.contains(name)) {
                     continue;
-                }                
+                }
                 Map<String, Object> map = new HashMap();
                 map.put(Cookies.NAME, name);
                 map.put(Cookies.VALUE, c.getValue());
@@ -324,6 +363,12 @@ public class ApacheHttpClient implements HttpClient, HttpRequestInterceptor {
         headers.put(HttpConstants.HDR_SET_COOKIE, mergedCookieValues);
         cookieStore.clear();
         Response response = new Response(httpResponse.getStatusLine().getStatusCode(), headers, bytes);
+        try {
+            EntityUtils.consume(httpResponse.getEntity());
+            httpResponse.close();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
         httpLogger.logResponse(getConfig(), request, response);
         return response;
     }

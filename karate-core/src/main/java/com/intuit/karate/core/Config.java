@@ -107,6 +107,9 @@ public class Config {
     // image comparison config
     private Map<String, Object> imageComparisonOptions;
 
+    private int maxConnectionsPerRoute = 50;
+    private int maxConnectionsTotal = 1000;
+
     public Config() {
         // zero arg constructor
     }
@@ -294,6 +297,12 @@ public class Config {
                 return true;
             case "localAddress":
                 localAddress = value.getAsString();
+                return true;
+            case "maxConnectionsPerRoute":
+                maxConnectionsPerRoute = value.getAsInt();
+                return true;
+            case "maxConnectionsTotal":
+                maxConnectionsTotal = value.getAsInt();
                 return true;
             default:
                 throw new RuntimeException("unexpected 'configure' key: '" + key + "'");
@@ -576,5 +585,9 @@ public class Config {
     public Map<String, Object> getImageComparisonOptions() {
         return imageComparisonOptions;
     }
+
+    public int getMaxConnectionsPerRoute() {return maxConnectionsPerRoute;}
+
+    public int getMaxConnectionsTotal() {return maxConnectionsTotal;}
 
 }
