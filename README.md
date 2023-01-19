@@ -320,7 +320,7 @@ All you need is available in the [`karate-core`](https://search.maven.org/artifa
 <dependency>
     <groupId>com.intuit.karate</groupId>
     <artifactId>karate-junit5</artifactId>
-    <version>1.3.1</version>
+    <version>1.3.1-adamos-patched</version>
     <scope>test</scope>
 </dependency>
 ```

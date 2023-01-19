@@ -1924,13 +1924,13 @@ public class ScenarioEngine {
                 return callOnceResult(result, sharedScope);
             }
             // this thread is the 'winner'
-            logger.info(">> lock acquired, begin callonce: {}", cacheKey);
+            logger.debug(">> lock acquired, begin callonce: {}", cacheKey);
             Variable callResult = call(called, arg, sharedScope);
             // we clone result (and config) here, to snapshot state at the point the callonce was invoked
             Map<String, Variable> clonedVars = called.isFeature() && sharedScope ? shallowCloneVariables() : null;
             result = new ScenarioCall.Result(callResult.copy(false), new Config(config), clonedVars);
             CACHE.put(cacheKey, result);
-            logger.info("<< lock released, cached callonce: {}", cacheKey);
+            logger.debug("<< lock released, cached callonce: {}", cacheKey);
              // another routine will apply globally if needed
             return callOnceResult(result, sharedScope); 
         }

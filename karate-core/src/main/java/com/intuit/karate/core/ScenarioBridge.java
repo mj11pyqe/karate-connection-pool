@@ -200,7 +200,7 @@ public class ScenarioBridge implements PerfContext {
                 return callSingleResult(engine, CACHE.get(fileName));
             }
             // this thread is the 'winner'
-            engine.logger.info(">> lock acquired, begin callSingle: {}", fileName);
+            engine.logger.debug(">> lock acquired, begin callSingle: {}", fileName);
             Object result = null;
             File cacheFile = null;
             if (minutes > 0) {
@@ -213,13 +213,13 @@ public class ScenarioBridge implements PerfContext {
                     if (lastModified > since) {
                         String json = FileUtils.toString(cacheFile);
                         result = JsonUtils.fromJson(json);
-                        engine.logger.info("callSingleCache hit: {}", cacheFile);
+                        engine.logger.debug("callSingleCache hit: {}", cacheFile);
                     } else {
-                        engine.logger.info("callSingleCache stale, last modified {} - is before {} (minutes: {})",
+                        engine.logger.debug("callSingleCache stale, last modified {} - is before {} (minutes: {})",
                                 lastModified, since, minutes);
                     }
                 } else {
-                    engine.logger.info("callSingleCache file does not exist, will create: {}", cacheFile);
+                    engine.logger.debug("callSingleCache file does not exist, will create: {}", cacheFile);
                 }
             }
             if (result == null) {
@@ -252,7 +252,7 @@ public class ScenarioBridge implements PerfContext {
                 result = resultVar.getValue();
             }
             CACHE.put(fileName, result);
-            engine.logger.info("<< lock released, cached callSingle: {}", fileName);
+            engine.logger.debug("<< lock released, cached callSingle: {}", fileName);
             return callSingleResult(engine, result);
         }
     }
